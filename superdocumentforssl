@@ -1,0 +1,146 @@
+How to deploy a secure website using Django.
+
+
+Django powered website can be deployed using following steps.
+
+1. Purchase/Create an instance in cloud / Local Server.
+
+2. connect to cloud server/deployment server.
+
+3. Download ssl certicate and key from dns provider.
+
+4. Put the certificate in following directory on the ubuntu server.
+   /etc/ssl/certs/
+
+5. Put the key in following directory on the server.
+     /etc/ssl/private/
+
+6. install gunicorn in virtualenv if not installed.
+
+
+
+8. Create a gunicorn config file for your project using following 
+command
+#############
+$ sudo vi /etc/systemd/system/gunicorn.service
+##############
+Add the following content to this file and edit according to your project.
+[Unit]
+Description=gunicorn daemon
+After=network.target
+
+[Service]
+User=arbaz
+Group=www-data
+WorkingDirectory=/path/to/project
+ExecStart=/path/to/virtualenv/bin/gunicorn --access-logfile - --workers 3 --bind unix:/path/to/project/project.sock project.wsgi:application
+
+[Install]
+WantedBy=multi-user.target
+###############
+
+
+9. Run the following command to load daemon 
+####################### $sudo systemctl daemon-reload
+
+10. Start Gunicorn
+
+## $ sudo systemctl start gunicorn
+
+
+11. $ sudo systemctl status gunicorn
+
+***** note: use command  $ sudo systemctl restart gunicorn . if you edit this file in future
+
+
+12 . ###########Create NGINX CONFIGURATION######################
+
+
+$sudo vi /etc/sites-available/yourfilename
+
+
+### add the following content to the file
+
+########################################################################
+upstream gunicorn{
+    # fail_timeout=0 means we always retry an upstream even if it failed
+    # to return a good HTTP response (in case the Unicorn master nukes a
+    # single worker for timing out).
+
+    # for UNIX domain socket setups:
+
+    server unix:/path/to/project/project.sock fail_timeout=0;
+
+    # for TCP setups, point these to your backend servers
+    #server 127.0.0.1:8000 fail_timeout=0;
+}
+server {
+    listen 80;
+    listen 443 ssl http2;
+    server_name talexcareers.com;
+    ssl_certificate /etc/ssl/certs/your_certificate.cer; 
+    ssl_certificate_key /etc/ssl/private/your_key.key; 
+
+
+
+    # path for static files
+    root /path/to/project/static;
+    
+
+    location /static/ {
+        alias   /path/to/project/static/;
+    }
+    
+    location /media/ {
+        alias   /path/to/project/media/;
+    }
+    location / {
+      # checks for static file, if not found proxy to app
+      try_files $uri @proxy_to_app;
+    }
+
+    location @proxy_to_app {
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        # When Nginx is handling SSL it is helpful to pass the protocol information
+        # to Gunicorn. Many web frameworks use this information to generate URLs.
+        # Without this information, the application may mistakenly generate http
+        # URLs in https responses, leading to mixed content warnings or broken
+        # applications. In this case, configure Nginx to pass an appropriate header:
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # pass the Host: header from the client right along so redirects
+        # can be set properly within the Rack application
+        proxy_set_header Host $http_host;
+
+        # we don't want nginx trying to do something clever with
+        # redirects, we set the Host: header above already.
+        proxy_redirect off;
+
+
+        # Try to serve static files from nginx, no point in making an
+        # *application* server like Unicorn/Rainbows! serve static files.
+        proxy_pass http://gunicorn;
+    }
+
+
+}
+##########################################################################
+
+Run the following command
+
+
+$ sudo ln -s /etc/nginx/sites-available/project /etc/nginx/sites-enabled/
+
+
+$ sudo systemctl start nginx
+
+
+Note on changes just run following command
+
+$ sudo systemctl restart nginx
+
+
+we are good....................
+
+
